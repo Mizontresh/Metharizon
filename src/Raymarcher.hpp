@@ -1,20 +1,15 @@
 #pragma once
-
 #include <glad/glad.h>
 #include <glm/glm.hpp>
+#include <glm/mat4x4.hpp>
 
 struct RaymarchConfig {
-    glm::vec2 resolution;   // in pixels
-    float     time;         
-    int       maxSteps;     
-    float     epsilon;      
-    int       pass;         
-
-    // New camera parameters:
-    glm::vec3 camPos;
-    glm::vec3 camForward;
-    glm::vec3 camRight;
-    glm::vec3 camUp;
+    glm::vec2 resolution;
+    float     time;
+    int       maxSteps;
+    float     epsilon;
+    int       pass;
+    glm::vec3 camPos, camForward, camRight, camUp;
 };
 
 class Raymarcher {
@@ -22,19 +17,21 @@ public:
     Raymarcher();
     ~Raymarcher();
 
-    bool init();                      // compile & link shaders, build VAO
-    void render(const RaymarchConfig& cfg);
+    bool init();
+
+    // mode: 0=basic,1=relaxed,2=enhanced
+    // objInv: inverse model matrix for the one object
+    void render(const RaymarchConfig& cfg, int mode, const glm::mat4& objInv);
 
 private:
     GLuint loadShader(const char* path, GLenum type);
     bool   linkProgram(GLuint vs, GLuint fs);
     void   buildFullScreenTriangle();
 
-    GLuint _program       = 0;
-    GLint  _locConfig     = -1;
-    GLint  _locCamPos     = -1;
-    GLint  _locCamForward = -1;
-    GLint  _locCamRight   = -1;
-    GLint  _locCamUp      = -1;
-    GLuint _vao           = 0;
+    GLuint _program = 0, _vao = 0;
+    // uniforms
+    GLint _locResolution, _locTime, _locMaxSteps, _locEpsilon, _locPass;
+    GLint _locMode;
+    GLint _locObjInv;       // <— new
+    GLint _locCamPos, _locCamForward, _locCamRight, _locCamUp;
 };

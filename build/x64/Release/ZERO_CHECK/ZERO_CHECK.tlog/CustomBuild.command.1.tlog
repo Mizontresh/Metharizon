@@ -1,0 +1,10 @@
+^D:\METHARIZON\BUILD\CMAKEFILES\AC53DE751DC0A612BB68D52CB6D1AC7A\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Metharizon -BD:/Metharizon/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file D:/Metharizon/build/Metharizon.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

@@ -62,15 +62,12 @@ void Raymarcher::buildFullScreenTriangle() {
     };
     glGenVertexArrays(1, &_vao);
     glBindVertexArray(_vao);
-
     GLuint vbo;
     glGenBuffers(1, &vbo);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
-
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
-
     glBindVertexArray(0);
     glDeleteBuffers(1, &vbo);
 }
@@ -83,7 +80,14 @@ bool Raymarcher::init() {
     glDeleteShader(vs);
     glDeleteShader(fs);
 
-    _locConfig     = glGetUniformLocation(_program, "u_config");
+    // fetch uniforms
+    _locResolution = glGetUniformLocation(_program, "u_resolution");
+    _locTime       = glGetUniformLocation(_program, "u_time");
+    _locMaxSteps   = glGetUniformLocation(_program, "u_maxSteps");
+    _locEpsilon    = glGetUniformLocation(_program, "u_epsilon");
+    _locPass       = glGetUniformLocation(_program, "u_pass");
+    _locMode       = glGetUniformLocation(_program, "u_mode");
+    _locObjInv     = glGetUniformLocation(_program, "u_objInvTransform");
     _locCamPos     = glGetUniformLocation(_program, "u_camPos");
     _locCamForward = glGetUniformLocation(_program, "u_camForward");
     _locCamRight   = glGetUniformLocation(_program, "u_camRight");
@@ -93,21 +97,19 @@ bool Raymarcher::init() {
     return true;
 }
 
-void Raymarcher::render(const RaymarchConfig& cfg) {
+void Raymarcher::render(const RaymarchConfig& cfg, int mode, const glm::mat4& objInv) {
     glUseProgram(_program);
 
-    // upload config array
-    float data[6] = {
-        cfg.resolution.x,      // [0]
-        cfg.resolution.y,      // [1]
-        cfg.time,              // [2]
-        float(cfg.maxSteps),   // [3]
-        cfg.epsilon,           // [4]
-        float(cfg.pass)        // [5]
-    };
-    glUniform1fv(_locConfig, 6, data);
+    // upload uniforms
+    glUniform1i (_locMode,       mode);
+    glUniform2fv(_locResolution, 1, &cfg.resolution[0]);
+    glUniform1f (_locTime,       cfg.time);
+    glUniform1i (_locMaxSteps,   cfg.maxSteps);
+    glUniform1f (_locEpsilon,    cfg.epsilon);
+    glUniform1i (_locPass,       cfg.pass);
 
-    // upload camera
+    glUniformMatrix4fv(_locObjInv, 1, GL_FALSE, &objInv[0][0]);
+
     glUniform3fv(_locCamPos,     1, &cfg.camPos[0]);
     glUniform3fv(_locCamForward, 1, &cfg.camForward[0]);
     glUniform3fv(_locCamRight,   1, &cfg.camRight[0]);
