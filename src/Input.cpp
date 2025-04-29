@@ -12,6 +12,5 @@ void Input::update() {
     }
 
     // 2) Mouse (relative motion)
-    // This returns dx,dy since the last call, even in relative mode.
     SDL_GetRelativeMouseState(&mouseDX_, &mouseDY_);
 }

@@ -14,10 +14,9 @@ public:
 
     // Query current window size
     void getSize(int& width, int& height) const;
-    // Update the window title
+    // Change window title
     void setTitle(const std::string& title);
-
-    // NEW: toggle between windowed <-> fullscreen
+    // Toggle fullscreen on/off
     void toggleFullscreen();
 
     bool isOpen() const { return open_; }

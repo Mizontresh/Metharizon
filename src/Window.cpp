@@ -1,17 +1,9 @@
 #include "Window.hpp"
 #include <iostream>
-#include <glad/glad.h>  // for glViewport etc.
-#include <SDL.h>        // for SDL_* types and functions
+#include <glad/glad.h>
+#include <SDL.h>
 
-Window::Window()
-  : window_(nullptr)
-  , glContext_(nullptr)
-  , open_(false)
-  , dragging_(false)
-  , dragOffsetX_(0)
-  , dragOffsetY_(0)
-{}
-
+Window::Window() {}
 Window::~Window() {
     if (glContext_) SDL_GL_DeleteContext(glContext_);
     if (window_)    SDL_DestroyWindow(window_);
@@ -23,7 +15,6 @@ bool Window::init(int width, int height, const char* title) {
         std::cerr << "SDL_Init Error: " << SDL_GetError() << "\n";
         return false;
     }
-
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -45,18 +36,14 @@ bool Window::init(int width, int height, const char* title) {
         return false;
     }
 
-    // initialize GLAD (must be done *after* creating the GL context)
     if (!gladLoadGLLoader((SDL_GL_GetProcAddress))) {
         std::cerr << "Failed to initialize GLAD\n";
         return false;
     }
-
-    // vsync on
     SDL_GL_SetSwapInterval(1);
 
-    // set initial viewport to match window size
+    // Set initial viewport
     glViewport(0, 0, width, height);
-
     open_ = true;
     return true;
 }
@@ -75,7 +62,6 @@ void Window::pollEvents() {
           case SDL_KEYDOWN:
             if (e.key.keysym.scancode == SDL_SCANCODE_F11) {
                 toggleFullscreen();
-                // after toggling, fetch new size and reset viewport
                 SDL_GetWindowSize(window_, &w, &h);
                 glViewport(0, 0, w, h);
             }
@@ -83,7 +69,6 @@ void Window::pollEvents() {
 
           case SDL_WINDOWEVENT:
             if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
-                // window was resized (or toggled fullscreen)
                 glViewport(0, 0, e.window.data1, e.window.data2);
             }
             break;
@@ -125,7 +110,6 @@ void Window::pollEvents() {
 }
 
 void Window::clear() {
-    glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
 }
 
