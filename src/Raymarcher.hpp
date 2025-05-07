@@ -1,7 +1,10 @@
+// Raymarcher.hpp
 #pragma once
+
 #include <glad/glad.h>
 #include <glm/glm.hpp>
 #include <glm/mat4x4.hpp>
+#include <glm/gtc/quaternion.hpp>
 #include <vector>
 
 struct RaymarchConfig {
@@ -18,32 +21,39 @@ public:
     Raymarcher();
     ~Raymarcher();
 
+    // Initialize GL program, get uniforms, create SSBOs, build VAO
     bool init();
+
+    // Render full-screen triangle; reads SSBOs and uniforms
     void render(const RaymarchConfig& cfg, int mode, const glm::mat4& objInv);
 
-    // new: receive dynamic spawn lists and their unique IDs
+    // Upload dynamic spawn lists: positions, radii, IDs, orientations
     void updateSpawns(const std::vector<glm::vec3>& positions,
                       const std::vector<float>&     minors,
-                      const std::vector<unsigned>&   ids);
+                      const std::vector<unsigned>&   ids,
+                      const std::vector<glm::quat>&  orientations);
 
 private:
+    // Helpers for shader loading/linking & VAO setup
     GLuint loadShader(const char* path, GLenum type);
     bool   linkProgram(GLuint vs, GLuint fs);
     void   buildFullScreenTriangle();
 
-    GLuint _program = 0, _vao = 0;
+    // GL handles
+    GLuint _program = 0;
+    GLuint _vao     = 0;
+    GLuint _ssboPosMinor = 0;
+    GLuint _ssboIDs      = 0;
+    GLuint _ssboOrient   = 0;
 
-    // existing uniforms
+    // Uniform locations
     GLint _locResolution, _locTime, _locMaxSteps, _locEpsilon, _locPass;
     GLint _locMode, _locObjInv;
     GLint _locCamPos, _locCamForward, _locCamRight, _locCamUp;
     GLint _locSpawnCount;
 
-    // SSBOs for unlimited spawns + IDs
-    GLuint _ssboPosMinor = 0;
-    GLuint _ssboIDs      = 0;
-
-    // CPU‐side buffers
-    std::vector<glm::vec4> spawnPosMin;  // (x,y,z)=pos, w=minor radius
+    // CPU‐side staging buffers
+    std::vector<glm::vec4> spawnPosMin;  // xyz = pos, w = radius
     std::vector<unsigned>  spawnIDs;
+    std::vector<glm::quat> spawnOrient;  // quaternion per instance
 };

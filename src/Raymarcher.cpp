@@ -1,8 +1,10 @@
+// Raymarcher.cpp
 #include "Raymarcher.hpp"
 #include <fstream>
 #include <sstream>
 #include <iostream>
 
+// Utility: read a text file into a string
 static std::string readFile(const char* path) {
     std::ifstream in(path);
     std::stringstream buf;
@@ -12,20 +14,22 @@ static std::string readFile(const char* path) {
 
 Raymarcher::Raymarcher() {}
 Raymarcher::~Raymarcher() {
-    if (_program)       glDeleteProgram(_program);
-    if (_vao)           glDeleteVertexArrays(1, &_vao);
-    if (_ssboPosMinor)  glDeleteBuffers(1, &_ssboPosMinor);
-    if (_ssboIDs)       glDeleteBuffers(1, &_ssboIDs);
+    if (_program)      glDeleteProgram(_program);
+    if (_vao)          glDeleteVertexArrays(1, &_vao);
+    if (_ssboPosMinor) glDeleteBuffers(1, &_ssboPosMinor);
+    if (_ssboIDs)      glDeleteBuffers(1, &_ssboIDs);
+    if (_ssboOrient)   glDeleteBuffers(1, &_ssboOrient);
 }
 
 bool Raymarcher::init() {
+    // --- Compile & link shaders ---
     GLuint vs = loadShader("shaders/fullscreen.vert", GL_VERTEX_SHADER);
     GLuint fs = loadShader("shaders/raymarch.frag",    GL_FRAGMENT_SHADER);
     if (!vs || !fs) return false;
     if (!linkProgram(vs, fs)) return false;
     glDeleteShader(vs); glDeleteShader(fs);
 
-    // fetch uniforms
+    // --- Get uniform locations ---
     _locResolution  = glGetUniformLocation(_program, "u_resolution");
     _locTime        = glGetUniformLocation(_program, "u_time");
     _locMaxSteps    = glGetUniformLocation(_program, "u_maxSteps");
@@ -39,31 +43,36 @@ bool Raymarcher::init() {
     _locCamUp       = glGetUniformLocation(_program, "u_camUp");
     _locSpawnCount  = glGetUniformLocation(_program, "u_spawnCount");
 
-    // create SSBOs
+    // --- Create SSBOs ---
     glGenBuffers(1, &_ssboPosMinor);
     glGenBuffers(1, &_ssboIDs);
+    glGenBuffers(1, &_ssboOrient);
 
+    // --- Build VAO for a fullscreen triangle ---
     buildFullScreenTriangle();
     return true;
 }
 
 void Raymarcher::updateSpawns(const std::vector<glm::vec3>& positions,
                               const std::vector<float>&     minors,
-                              const std::vector<unsigned>&   ids)
+                              const std::vector<unsigned>&   ids,
+                              const std::vector<glm::quat>&  orientations)
 {
     size_t n = positions.size();
     spawnPosMin.resize(n);
-    spawnIDs.resize(n);
+    spawnIDs   .resize(n);
+    spawnOrient.resize(n);
     for (size_t i = 0; i < n; ++i) {
         spawnPosMin[i] = glm::vec4(positions[i], minors[i]);
-        spawnIDs[i]    = ids[i];
+        spawnIDs   [i] = ids[i];
+        spawnOrient[i] = orientations[i];
     }
 }
 
 void Raymarcher::render(const RaymarchConfig& cfg, int mode, const glm::mat4& objInv) {
     glUseProgram(_program);
 
-    // camera + mode
+    // --- Set uniforms ---
     glUniform1i (_locMode,       mode);
     glUniform2fv(_locResolution, 1, &cfg.resolution[0]);
     glUniform1f (_locTime,       cfg.time);
@@ -76,11 +85,11 @@ void Raymarcher::render(const RaymarchConfig& cfg, int mode, const glm::mat4& ob
     glUniform3fv(_locCamRight,   1, &cfg.camRight[0]);
     glUniform3fv(_locCamUp,      1, &cfg.camUp[0]);
 
-    // upload spawn count
+    // --- Upload spawn count ---
     unsigned count = (unsigned)spawnPosMin.size();
     glUniform1ui(_locSpawnCount, count);
 
-    // SSBO: positions+minors
+    // --- SSBO 0: positions + radii ---
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssboPosMinor);
     glBufferData(GL_SHADER_STORAGE_BUFFER,
                  count * sizeof(glm::vec4),
@@ -88,7 +97,7 @@ void Raymarcher::render(const RaymarchConfig& cfg, int mode, const glm::mat4& ob
                  GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, _ssboPosMinor);
 
-    // SSBO: IDs
+    // --- SSBO 1: IDs ---
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssboIDs);
     glBufferData(GL_SHADER_STORAGE_BUFFER,
                  count * sizeof(unsigned),
@@ -96,13 +105,19 @@ void Raymarcher::render(const RaymarchConfig& cfg, int mode, const glm::mat4& ob
                  GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, _ssboIDs);
 
-    // draw fullscreen triangle
+    // --- SSBO 2: orientations (quaternions) ---
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, _ssboOrient);
+    glBufferData(GL_SHADER_STORAGE_BUFFER,
+                 count * sizeof(glm::quat),
+                 spawnOrient.data(),
+                 GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, _ssboOrient);
+
+    // --- Draw fullscreen triangle ---
     glBindVertexArray(_vao);
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glBindVertexArray(0);
 }
-
-// loadShader, linkProgram, buildFullScreenTriangle unchanged…
 
 GLuint Raymarcher::loadShader(const char* path, GLenum type) {
     auto src = readFile(path);
@@ -143,19 +158,25 @@ bool Raymarcher::linkProgram(GLuint vs, GLuint fs) {
 }
 
 void Raymarcher::buildFullScreenTriangle() {
-    static const float verts[] = {
+    // Fullscreen triangle verts in NDC:
+    static const float verts[6] = {
         -1.0f, -1.0f,
          3.0f, -1.0f,
         -1.0f,  3.0f
     };
+
     glGenVertexArrays(1, &_vao);
     glBindVertexArray(_vao);
+
     GLuint vbo;
     glGenBuffers(1, &vbo);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STATIC_DRAW);
+
+    // attribute 0 = vec2 position
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2*sizeof(float), (void*)0);
+
     glBindVertexArray(0);
     glDeleteBuffers(1, &vbo);
 }
