@@ -1,0 +1,30 @@
+# Build directories
+build/
+
+# IDE directories
+.vscode/
+
+# Object and binary files
+*.obj
+*.o
+*.exe
+*.dll
+*.so
+*.pdb
+*.lib
+*.a
+
+# Visual Studio files
+*.vcxproj*
+*.sln
+*.filters
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+
+# Logs and temporary files
+*.log
+*.tlog
+*.ilk
+*.idb
