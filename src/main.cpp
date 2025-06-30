@@ -2,6 +2,8 @@
 #include <SDL.h>
 #include <iostream>
 #include <vector>
+#include <algorithm>
+#include <cmath>
 
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
@@ -14,11 +16,6 @@
 #include "Time.hpp"
 #include "Input.hpp"
 #include "Raymarcher.hpp"
-
-// Stub SDF; replace with your real map() logic
-float cpuSDF(const glm::vec3& p) {
-    return 1e6f;
-}
 
 int main(){
     // — init window & subsystems —
@@ -53,6 +50,7 @@ int main(){
     std::vector<glm::quat> orientations;
     std::vector<glm::vec3> angVel;
     std::vector<unsigned>  ids;
+    std::vector<float>     boundR;
     unsigned nextID = 1;
 
     // — physics params —
@@ -66,6 +64,43 @@ int main(){
     const int   substeps    = 4;
     auto computeMass    =[&](float r){ return density*(4.0f/3.0f)*3.14159265f*r*r*r; };
     auto computeInertia =[&](float m,float r){ return 0.4f * m * r*r; };
+
+    // --- CPU-side SDF helpers for collisions ---
+    auto torusSDF = [](const glm::vec3& p, float R, float r) {
+        glm::vec2 q(glm::length(glm::vec2(p.x, p.z)) - R, p.y);
+        return glm::length(q) - r;
+    };
+
+    auto bodySDF = [&](size_t idx, const glm::vec3& pos) {
+        glm::vec3 rel = pos - positions[idx];
+        rel = glm::rotate(glm::conjugate(orientations[idx]), rel);
+        float R = radii[idx];
+        float r = R * 0.4f;
+        return torusSDF(rel, R, r);
+    };
+
+    auto pairSDF = [&](size_t a, size_t b, const glm::vec3& pos){
+        return std::max(bodySDF(a,pos), bodySDF(b,pos));
+    };
+
+    auto pairGrad = [&](size_t a, size_t b, const glm::vec3& pos){
+        const float e = 1e-4f;
+        return glm::normalize(glm::vec3(
+            pairSDF(a,b,pos+glm::vec3(e,0,0)) - pairSDF(a,b,pos-glm::vec3(e,0,0)),
+            pairSDF(a,b,pos+glm::vec3(0,e,0)) - pairSDF(a,b,pos-glm::vec3(0,e,0)),
+            pairSDF(a,b,pos+glm::vec3(0,0,e)) - pairSDF(a,b,pos-glm::vec3(0,0,e))
+        ));
+    };
+
+    auto projectContact = [&](size_t a, size_t b){
+        glm::vec3 p = 0.5f * (positions[a] + positions[b]);
+        for(int k=0;k<2;++k){
+            float d = pairSDF(a,b,p);
+            glm::vec3 n = pairGrad(a,b,p);
+            p -= n * d;
+        }
+        return p;
+    };
 
     while(window.isOpen()){
         window.pollEvents();
@@ -85,6 +120,7 @@ int main(){
             orientations.push_back(glm::quat(1,0,0,0));
             angVel     .push_back(glm::vec3(0.0f));
             ids        .push_back(nextID++);
+            boundR     .push_back(bodyR * 1.4f);
         }
 
         // — camera control —
@@ -181,26 +217,89 @@ int main(){
                     }
                 }
             }
-            // 4) Sphere–SDF collisions (similar torque logic)
+            // 3b) Torus–torus SDF collisions
+            for(size_t i=0;i<n;++i){
+                for(size_t j=i+1;j<n;++j){
+                    float maxDist = boundR[i] + boundR[j];
+                    glm::vec3 delta = positions[j] - positions[i];
+                    if(glm::dot(delta, delta) > maxDist*maxDist) continue;
+                    glm::vec3 contact = projectContact(i,j);
+                    float d = pairSDF(i,j, contact);
+                    if(d < 0.0f){
+                        glm::vec3 N = pairGrad(i,j, contact);
+                        float pen = -d;
+                        float totalM = masses[i] + masses[j];
+                        positions[i] += N * (pen * (masses[j]/totalM));
+                        positions[j] -= N * (pen * (masses[i]/totalM));
+
+                        glm::vec3 rA = contact - positions[i];
+                        glm::vec3 rB = contact - positions[j];
+                        glm::vec3 vA = velocities[i] + glm::cross(angVel[i], rA);
+                        glm::vec3 vB = velocities[j] + glm::cross(angVel[j], rB);
+                        glm::vec3 relV = vB - vA;
+                        float vn = glm::dot(relV, N);
+                        if(vn < 0.0f){
+                            float invM = 1.0f/masses[i] + 1.0f/masses[j];
+                            float Jn = -(1.0f + restitution)*vn / invM;
+                            glm::vec3 J = Jn * N;
+                            velocities[i] -= J * (1.0f/masses[i]);
+                            velocities[j] += J * (1.0f/masses[j]);
+                            angVel[i] += glm::cross(rA, -J) / inertias[i];
+                            angVel[j] += glm::cross(rB,  J) / inertias[j];
+
+                            glm::vec3 vt = relV - vn*N;
+                            float vt_len = glm::length(vt);
+                            if(vt_len > 1e-4f){
+                                glm::vec3 tdir = vt / vt_len;
+                                float Jt = glm::min(mu * Jn, vt_len * masses[i]);
+                                glm::vec3 Jf = -Jt * tdir;
+                                velocities[i] -= Jf * (1.0f/masses[i]);
+                                velocities[j] += Jf * (1.0f/masses[j]);
+                                angVel[i] += glm::cross(rA, -Jf) / inertias[i];
+                                angVel[j] += glm::cross(rB,  Jf) / inertias[j];
+                            }
+                        }
+                    }
+                }
+            }
+            // 4) Torus–fractal collisions
             glm::mat4 invX = glm::inverse(fractalXform);
+            auto mapLocal = [&](const glm::vec3& p){
+                float d = glm::length(p) - 1.0f;
+                for(size_t k=0;k<n;++k){
+                    glm::vec3 sc = glm::vec3(invX * glm::vec4(positions[k],1));
+                    glm::vec3 rel = p - sc;
+                    rel = glm::rotate(glm::conjugate(orientations[k]), rel);
+                    float td = torusSDF(rel, radii[k], radii[k]*0.4f);
+                    float kf = 0.3f;
+                    float h = std::max(kf - std::abs(d - td), 0.0f) / kf;
+                    d = std::min(d, td) - h*h*kf*0.25f;
+                }
+                return d;
+            };
+
+            auto gradLocal = [&](const glm::vec3& p){
+                const float e = 1e-4f;
+                return glm::normalize(glm::vec3(
+                    mapLocal(p+glm::vec3(e,0,0)) - mapLocal(p-glm::vec3(e,0,0)),
+                    mapLocal(p+glm::vec3(0,e,0)) - mapLocal(p-glm::vec3(0,e,0)),
+                    mapLocal(p+glm::vec3(0,0,e)) - mapLocal(p-glm::vec3(0,0,e))
+                ));
+            };
+
             for(size_t i=0;i<n;++i){
                 glm::vec3 lp = glm::vec3(invX * glm::vec4(positions[i],1));
-                float d = cpuSDF(lp);
-                if(d < radii[i]){
-                    const float e=1e-3f;
-                    glm::vec3 N = glm::normalize(glm::vec3(
-                        cpuSDF(lp+glm::vec3(e,0,0)) - cpuSDF(lp-glm::vec3(e,0,0)),
-                        cpuSDF(lp+glm::vec3(0,e,0)) - cpuSDF(lp-glm::vec3(0,e,0)),
-                        cpuSDF(lp+glm::vec3(0,0,e)) - cpuSDF(lp-glm::vec3(0,0,e))
-                    ));
-                    float pen = radii[i] - d;
+                float d = mapLocal(lp);
+                if(d < 0.0f){
+                    glm::vec3 Nl = gradLocal(lp);
+                    glm::vec3 N = glm::normalize(glm::vec3(fractalXform * glm::vec4(Nl,0)));
+                    float pen = -d;
                     positions[i] += N * pen;
 
                     glm::vec3 v0 = velocities[i];
                     glm::vec3 J = masses[i] * (glm::reflect(v0,N) * restitution - v0);
                     velocities[i] = v0 + J / masses[i];
 
-                    // contact point:
                     glm::vec3 contact = positions[i] - N * radii[i];
                     glm::vec3 torque = glm::cross(contact - positions[i], J);
                     angVel[i] += torque / inertias[i];
