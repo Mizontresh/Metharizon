@@ -1,7 +1,9 @@
 # CMakeLists.txt :contentReference[oaicite:0]{index=0}&#8203;:contentReference[oaicite:1]{index=1}
-set(CMAKE_TOOLCHAIN_FILE
-    "${CMAKE_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake"
-    CACHE STRING "")
+if(NOT DEFINED CMAKE_TOOLCHAIN_FILE AND EXISTS "${CMAKE_SOURCE_DIR}/vcpkg")
+    set(CMAKE_TOOLCHAIN_FILE
+        "${CMAKE_SOURCE_DIR}/vcpkg/scripts/buildsystems/vcpkg.cmake"
+        CACHE STRING "Path to vcpkg toolchain file")
+endif()
 cmake_minimum_required(VERSION 3.10)
 project(Metharizon LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
