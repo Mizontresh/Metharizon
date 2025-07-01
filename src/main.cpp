@@ -15,10 +15,6 @@
 #include "Input.hpp"
 #include "Raymarcher.hpp"
 
-// Stub SDF; replace with your real map() logic
-float cpuSDF(const glm::vec3& p) {
-    return 1e6f;
-}
 
 int main(){
     // — init window & subsystems —
@@ -66,6 +62,32 @@ int main(){
     const int   substeps    = 4;
     auto computeMass    =[&](float r){ return density*(4.0f/3.0f)*3.14159265f*r*r*r; };
     auto computeInertia =[&](float m,float r){ return 0.4f * m * r*r; };
+
+    // CPU evaluation of the raymarched scene SDF, used for physics collisions
+    auto cpuSDF = [&](const glm::vec3& p)->float {
+        // Base fractal: rotating unit sphere at the origin
+        float d = glm::length(p) - 1.0f;
+
+        // Blend in each spawned torus
+        for(size_t i=0;i<positions.size();++i){
+            // position already provided in fractal local space
+            glm::vec3 rel = p - positions[i];
+            glm::quat q = orientations[i];
+            glm::vec3 qv(q.x, q.y, q.z);
+            glm::vec3 t = 2.0f * glm::cross(qv, rel);
+            rel = rel - q.w * t + glm::cross(qv, t); // rotateInv(q, rel)
+
+            float R = radii[i];         // major radius
+            float r = radii[i] * 0.4f;  // minor radius
+            glm::vec2 q2(glm::length(glm::vec2(rel.x, rel.z)) - R, rel.y);
+            float td = glm::length(q2) - r;
+
+            float k = 0.3f;
+            float h = std::max(k - std::abs(d - td), 0.0f) / k;
+            d = std::min(d, td) - h*h*k*0.25f;
+        }
+        return d;
+    };
 
     while(window.isOpen()){
         window.pollEvents();
