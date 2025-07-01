@@ -8,6 +8,7 @@ uniform float u_epsilon;
 uniform mat4  u_objInvTransform;
 uniform vec3  u_camPos, u_camForward, u_camRight, u_camUp;
 uniform uint  u_spawnCount;
+uniform int   u_mode;
 
 // SSBOs
 layout(std430, binding = 0) readonly buffer PosMinors {
@@ -33,10 +34,39 @@ float torusSDF(vec3 p, vec2 t) {
     return length(q) - t.y;
 }
 
+float baseSDF(vec3 op){
+    if(u_mode==1){
+        return length(op) - 1.0; // sphere
+    }else if(u_mode==2){
+        vec3 q = abs(op) - vec3(1.0);
+        return length(max(q,0.0)) + min(max(q.x,max(q.y,q.z)),0.0);
+    }else if(u_mode==3){
+        vec2 q = vec2(length(op.xz) - 0.7, op.y);
+        return length(q) - 0.3; // torus
+    }else if(u_mode==4){
+        vec2 h = vec2(1.0,0.5);
+        vec2 d = abs(vec2(length(op.xz), op.y)) - h;
+        return min(max(d.x,d.y),0.0) + length(max(d,0.0)); // cylinder
+    }else if(u_mode==5){
+        float m = abs(op.x)+abs(op.y)+abs(op.z)-1.0;
+        return m*0.57735027; // octahedron
+    }else if(u_mode==6){
+        vec3 q = abs(op) - vec3(0.5);
+        return length(max(q,0.0)) - 0.1; // rounded box
+    }else if(u_mode==7){
+        vec3 q = abs(op);
+        return max(q.y-0.5,max(q.x*0.866025+q.z*0.5,q.z)-0.5); // hex prism
+    }else if(u_mode==8){
+        vec2 k = vec2(0.5,1.0);
+        float c = length(op.xz)-k.x;
+        return max(c*0.5 + op.y*0.866025 - k.y, -op.y - k.y); // cone
+    }
+    return length(op) - 1.0;
+}
+
 float map(vec3 p) {
-    // Base fractal: rotating unit-sphere
     vec3 op = (u_objInvTransform * vec4(p,1)).xyz;
-    float d = length(op) - 1.0;
+    float d = baseSDF(op);
 
     // Blend in each torus, rotated by its quaternion
     for(uint i=0u; i<u_spawnCount; ++i){

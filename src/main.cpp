@@ -137,6 +137,14 @@ int main(){
         if(input.isKeyDown(SDL_SCANCODE_SPACE))  camPos += upVec   * speed * dt;
         if(input.isKeyDown(SDL_SCANCODE_LSHIFT)) camPos -= upVec   * speed * dt;
         if(input.wasKeyPressed(SDL_SCANCODE_ESCAPE)) break;
+        if(input.wasKeyPressed(SDL_SCANCODE_1)) mode = 1;
+        if(input.wasKeyPressed(SDL_SCANCODE_2)) mode = 2;
+        if(input.wasKeyPressed(SDL_SCANCODE_3)) mode = 3;
+        if(input.wasKeyPressed(SDL_SCANCODE_4)) mode = 4;
+        if(input.wasKeyPressed(SDL_SCANCODE_5)) mode = 5;
+        if(input.wasKeyPressed(SDL_SCANCODE_6)) mode = 6;
+        if(input.wasKeyPressed(SDL_SCANCODE_7)) mode = 7;
+        if(input.wasKeyPressed(SDL_SCANCODE_8)) mode = 8;
 
         size_t n = positions.size();
         for(int step=0; step<substeps; ++step){
@@ -264,8 +272,51 @@ int main(){
             }
             // 4) Torus–fractal collisions
             glm::mat4 invX = glm::inverse(fractalXform);
+
+            auto baseSDF = [&](const glm::vec3& p){
+                switch(mode){
+                    case 1: {
+                        return glm::length(p) - 1.0f; // sphere
+                    }
+                    case 2: {
+                        glm::vec3 q = glm::abs(p) - glm::vec3(1.0f);
+                        float m = glm::max(glm::max(q.x, q.y), q.z);
+                        return glm::length(glm::max(q, glm::vec3(0.0f))) +
+                               glm::min(m, 0.0f);
+                    }
+                    case 3: {
+                        glm::vec2 q(glm::length(glm::vec2(p.x, p.z)) - 0.7f, p.y);
+                        return glm::length(q) - 0.3f; // torus
+                    }
+                    case 4: {
+                        glm::vec2 h(1.0f,0.5f);
+                        glm::vec2 d(glm::length(glm::vec2(p.x,p.z)), p.y);
+                        d = glm::abs(d) - h;
+                        return glm::min(glm::max(d.x,d.y),0.0f) + glm::length(glm::max(d, glm::vec2(0.0f)));
+                    }
+                    case 5: {
+                        float m = glm::abs(p.x) + glm::abs(p.y) + glm::abs(p.z) - 1.0f;
+                        return m * 0.57735027f; // octahedron
+                    }
+                    case 6: {
+                        glm::vec3 q = glm::abs(p) - glm::vec3(0.5f);
+                        return glm::length(glm::max(q, glm::vec3(0.0f))) - 0.1f;
+                    }
+                    case 7: {
+                        glm::vec3 q = glm::abs(p);
+                        return glm::max(q.y - 0.5f, glm::max(q.x*0.866025f + q.z*0.5f, q.z) - 0.5f);
+                    }
+                    case 8: {
+                        glm::vec2 k(0.5f,1.0f);
+                        float c = glm::length(glm::vec2(p.x,p.z)) - k.x;
+                        return glm::max(c*0.5f + p.y*0.866025f - k.y, -p.y - k.y);
+                    }
+                }
+                return glm::length(p) - 1.0f;
+            };
+
             auto mapLocal = [&](const glm::vec3& p){
-                float d = glm::length(p) - 1.0f;
+                float d = baseSDF(p);
                 for(size_t k=0;k<n;++k){
                     glm::vec3 sc = glm::vec3(invX * glm::vec4(positions[k],1));
                     glm::vec3 rel = p - sc;
