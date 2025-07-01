@@ -41,7 +41,7 @@ int main(){
     glm::quat viewOri(1,0,0,0);
     const glm::vec3 worldUp(0,1,0);
     const float speed = 20.0f, sens = 0.0025f;
-    int mode = 2;
+    int mode = 1;
     glm::mat4 fractalXform(1.0f);
 
     // — dynamic bodies data —
@@ -86,6 +86,16 @@ int main(){
             angVel     .push_back(glm::vec3(0.0f));
             ids        .push_back(nextID++);
         }
+
+        // — fractal selection 1..8 —
+        if(input.wasKeyPressed(SDL_SCANCODE_1)) mode = 1;
+        if(input.wasKeyPressed(SDL_SCANCODE_2)) mode = 2;
+        if(input.wasKeyPressed(SDL_SCANCODE_3)) mode = 3;
+        if(input.wasKeyPressed(SDL_SCANCODE_4)) mode = 4;
+        if(input.wasKeyPressed(SDL_SCANCODE_5)) mode = 5;
+        if(input.wasKeyPressed(SDL_SCANCODE_6)) mode = 6;
+        if(input.wasKeyPressed(SDL_SCANCODE_7)) mode = 7;
+        if(input.wasKeyPressed(SDL_SCANCODE_8)) mode = 8;
 
         // — camera control —
         int mx,my; input.getMouseDelta(mx,my);
