@@ -11,8 +11,10 @@ layout(push_constant) uniform PushConstants {
 
 // Shared physics state written by physics_step.comp
 struct Body {
-    vec4 posRad;   // xyz = position, w = radius (marble) or angle (bulb)
-    vec4 velMas;   // xyz = velocity, w = mass
+    vec4 posRad;
+    vec4 velMas;
+    vec4 quat;    // orientation quaternion
+    vec4 angVel;  // xyz ω, w unused
 };
 
 layout(std430, binding = 0) readonly buffer StateBuffer {
@@ -26,11 +28,14 @@ float mandelbulbSDF(vec3 p) {
     // Translate into bulb-local space
     p -= bodies[1].posRad.xyz;
 
-    // Apply bulb rotation (angle stored in posRad.w)
-    float a = bodies[1].posRad.w;
-    mat2 rot = mat2(cos(a), -sin(a),
-                    sin(a),  cos(a));
-    p.xz = rot * p.xz;
+    // Apply bulb quaternion rotation
+    vec4 q = bodies[1].quat;
+    mat3 rot = mat3(
+        1.0 - 2.0*(q.y*q.y + q.z*q.z), 2.0*(q.x*q.y - q.z*q.w),     2.0*(q.x*q.z + q.y*q.w),
+        2.0*(q.x*q.y + q.z*q.w),     1.0 - 2.0*(q.x*q.x + q.z*q.z), 2.0*(q.y*q.z - q.x*q.w),
+        2.0*(q.x*q.z - q.y*q.w),     2.0*(q.y*q.z + q.x*q.w),     1.0 - 2.0*(q.x*q.x + q.y*q.y)
+    );
+    p = rot * p;
 
     vec3 z = p;
     float dr = 1.0;

@@ -8,6 +8,8 @@
 struct BodyInit {
     glm::vec4 posRad;
     glm::vec4 velMas;
+    glm::vec4 quat;
+    glm::vec4 angVel;
 };
 
 PhysicsComputeRenderer::PhysicsComputeRenderer(VulkanDevice* device, VulkanCommandPool* commandPool)
@@ -43,8 +45,8 @@ PhysicsComputeRenderer::~PhysicsComputeRenderer() {
 }
 
 void PhysicsComputeRenderer::createStateBuffer() {
-    // Two bodies → 2 * vec4 * 2 = 64 bytes
-    VkDeviceSize bufferSize = sizeof(glm::vec4) * 4;
+    // Two bodies → 2 * vec4 * 4 = 128 bytes
+    VkDeviceSize bufferSize = sizeof(glm::vec4) * 8;
 
     VkBufferCreateInfo bufferInfo{};
     bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -73,11 +75,17 @@ void PhysicsComputeRenderer::createStateBuffer() {
 
     // Initial data
     BodyInit bodies[2] = {};
-    bodies[0].posRad = glm::vec4(0.0f, 1.5f, -5.0f, 0.3f);  // Marble in front of camera
-    bodies[0].velMas = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    // Marble
+    bodies[0].posRad       = glm::vec4(0.0f, 1.5f, -5.0f, 0.3f);
+    bodies[0].velMas       = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    bodies[0].quat  = glm::vec4(0.0f,0.0f,0.0f,1.0f);
+    bodies[0].angVel = glm::vec4(0.0f);
 
-    bodies[1].posRad = glm::vec4(0.0f); // Bulb at origin, radius unused
+    // Mandelbulb
+    bodies[1].posRad = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f); // radius 1 m for quicker spin
     bodies[1].velMas = glm::vec4(0.0f, 0.0f, 0.0f, 2.0f);
+    bodies[1].quat   = glm::vec4(0.0f,0.0f,0.0f,1.0f);
+    bodies[1].angVel = glm::vec4(0.0f);
 
     void* data;
     vkMapMemory(device->getDevice(), stateBufferMemory, 0, bufferSize, 0, &data);

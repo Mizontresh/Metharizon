@@ -134,7 +134,7 @@ void VulkanApplication::render() {
 
     // GPU physics step
     if (physicsRenderer) {
-        physicsRenderer->updatePushConstants(dtPhysics, 0.02f /*G*/, 0.3f /*restitution*/);
+        physicsRenderer->updatePushConstants(dtPhysics, 1.0f /*G*/, 1.0f /*restitution*/);
         physicsRenderer->dispatch(device->getGraphicsQueue());
     }
 
