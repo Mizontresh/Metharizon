@@ -29,6 +29,9 @@ file(GLOB_RECURSE SOURCES
     "src/physics/*.cpp"
 )
 
+# Explicitly add new GPU physics files
+list(APPEND SOURCES "src/rendering/PhysicsComputeRenderer.cpp" "src/vulkan/VulkanPhysicsPipeline.cpp")
+
 # Explicitly add Camera.cpp to ensure it's compiled
 list(APPEND SOURCES "src/core/Camera.cpp")
 
@@ -57,7 +60,7 @@ set(SPIRV_FILES "")
 foreach(SHADER ${SHADERS})
     get_filename_component(SHADER_NAME ${SHADER} NAME_WE)
     get_filename_component(SHADER_EXT ${SHADER} EXT)
-    set(SPIRV_FILE "${CMAKE_CURRENT_BINARY_DIR}/${SHADER_NAME}${SHADER_EXT}.spv")
+    set(SPIRV_FILE "${SHADER}.spv")
     
     add_custom_command(
         OUTPUT ${SPIRV_FILE}
@@ -79,4 +82,6 @@ add_dependencies(${PROJECT_NAME} Shaders)
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_SOURCE_DIR}/shaders $<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders
-) 
+)
+
+ 

@@ -9,6 +9,7 @@
 #include "vulkan/VulkanDescriptorPool.h"
 
 #include "rendering/ComputeRenderer.h"
+#include "rendering/PhysicsComputeRenderer.h"
 
 #include <stdexcept>
 #include <GLFW/glfw3.h>
@@ -32,10 +33,13 @@ VulkanApplication::VulkanApplication(Window* window) : window(window) {
     commandPool = std::make_unique<VulkanCommandPool>(device.get());
     descriptorPool = std::make_unique<VulkanDescriptorPool>(device.get());
     
+    // Initialize GPU physics renderer
+    physicsRenderer = std::make_unique<PhysicsComputeRenderer>(device.get(), commandPool.get());
+
     // Initialize compute renderer
     computeRenderer = std::make_unique<ComputeRenderer>(device.get(), commandPool.get());
     computeRenderer->createOutputImage(swapChain.get());
-    computeRenderer->createDescriptorSet();
+    computeRenderer->createDescriptorSet(physicsRenderer->getStateBuffer());
     
 
     
@@ -64,8 +68,12 @@ VulkanApplication::VulkanApplication(Window* window) : window(window) {
 
 VulkanApplication::~VulkanApplication() {
     Logger::info("Cleaning up Vulkan Application");
-    
+
     vkDeviceWaitIdle(device->getDevice());
+
+    // Destroy GPU and CPU renderers before tearing down device
+    physicsRenderer.reset();
+    computeRenderer.reset();
     
     // Cleanup synchronization objects
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -117,13 +125,26 @@ void VulkanApplication::render() {
     // Handle input and update camera
     handleInput();
     
+    // Physics step (real dt)
+    static double lastPhysicsTime = glfwGetTime();
+    double curr = glfwGetTime();
+    float dtPhysics = static_cast<float>(curr - lastPhysicsTime);
+    lastPhysicsTime = curr;
+    /* CPU physics disabled – GPU authoritative */
+
+    // GPU physics step
+    if (physicsRenderer) {
+        physicsRenderer->updatePushConstants(dtPhysics, 0.02f /*G*/, 0.3f /*restitution*/);
+        physicsRenderer->dispatch(device->getGraphicsQueue());
+    }
+
     // Update camera data for shader
     glm::mat4 view = camera->getViewMatrix();
     glm::mat4 proj = glm::perspective(glm::radians(45.0f), aspectRatio, 0.1f, 100.0f);
     proj[1][1] *= -1; // Flip Y for Vulkan
     
-    static float time = 0.0f;
-    time += 0.016f; // Approximate 60 FPS
+    static float timeAccum = 0.0f;
+    timeAccum += dtPhysics;
     
     // Safety check: ensure renderer is valid before using it
     if (!computeRenderer) {
@@ -131,14 +152,14 @@ void VulkanApplication::render() {
         return;
     }
     
-    computeRenderer->updateCameraData(camera->getPosition(), time, view, aspectRatio);
+    computeRenderer->updateCameraData(camera->getPosition(), timeAccum, view, aspectRatio);
+
     
     // Debug: Log camera data being sent to shader
     static int debugFrame = 0;
     debugFrame++;
     if (debugFrame % 60 == 0) {
-        Logger::info("Sending to shader - Camera pos: (" + std::to_string(camera->getPosition().x) + 
-                    ", " + std::to_string(camera->getPosition().y) + ", " + std::to_string(camera->getPosition().z) + ")");
+        Logger::info("Camera pos: (" + std::to_string(camera->getPosition().x) + ", " + std::to_string(camera->getPosition().y) + ", " + std::to_string(camera->getPosition().z) + ")");
     }
     
     // Record command buffer
@@ -261,7 +282,7 @@ void VulkanApplication::recreateSwapChain() {
     try {
         computeRenderer = std::make_unique<ComputeRenderer>(device.get(), commandPool.get());
         computeRenderer->createOutputImage(swapChain.get());
-        computeRenderer->createDescriptorSet();
+        computeRenderer->createDescriptorSet(physicsRenderer->getStateBuffer());
         Logger::info("New compute renderer created successfully");
     } catch (const std::exception& e) {
         Logger::error("Failed to create new renderer: " + std::string(e.what()));

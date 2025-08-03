@@ -41,7 +41,15 @@ VulkanComputePipeline::~VulkanComputePipeline() {
 void VulkanComputePipeline::createDescriptorSetLayout() {
     Logger::info("Creating compute descriptor set layout");
     
-    // Only storage image binding - no uniform buffer binding needed for push constants
+    // Storage buffer (physics state) binding
+    VkDescriptorSetLayoutBinding bufferBinding{};
+    bufferBinding.binding = 0;
+    bufferBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    bufferBinding.descriptorCount = 1;
+    bufferBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    bufferBinding.pImmutableSamplers = nullptr;
+
+    // Storage image binding
     VkDescriptorSetLayoutBinding imageBinding{};
     imageBinding.binding = 1;
     imageBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -50,8 +58,9 @@ void VulkanComputePipeline::createDescriptorSetLayout() {
     
     VkDescriptorSetLayoutCreateInfo layoutInfo{};
     layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layoutInfo.bindingCount = 1;
-    layoutInfo.pBindings = &imageBinding;
+    layoutInfo.bindingCount = 2;
+        VkDescriptorSetLayoutBinding bindings[2] = { bufferBinding, imageBinding };
+    layoutInfo.pBindings = bindings;
     
     if (vkCreateDescriptorSetLayout(device->getDevice(), &layoutInfo, nullptr, &descriptorSetLayout) != VK_SUCCESS) {
         throw std::runtime_error("Failed to create compute descriptor set layout!");
@@ -64,7 +73,7 @@ void VulkanComputePipeline::createComputePipeline() {
     Logger::info("Creating compute pipeline");
     
     // Load compute shader
-    auto computeShaderCode = readFile("Release/shaders/raymarch.comp.spv");
+    auto computeShaderCode = readFile("shaders/raymarch.comp.spv");
     VkShaderModule computeShaderModule = createShaderModule(computeShaderCode);
     
     VkPipelineShaderStageCreateInfo computeShaderStageInfo{};
@@ -83,7 +92,7 @@ void VulkanComputePipeline::createComputePipeline() {
     VkPushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     pushConstantRange.offset = 0;
-    pushConstantRange.size = sizeof(float) * 21; // vec3 + float + mat4 + float (12+4+64+4 = 84 bytes = 21 floats)
+    pushConstantRange.size = sizeof(float) * 32; // 128 bytes – 8 vec4s (cam+mat4+3 vec4)
     
     pipelineLayoutInfo.pushConstantRangeCount = 1;
     pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;

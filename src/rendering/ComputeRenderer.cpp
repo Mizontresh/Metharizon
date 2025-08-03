@@ -10,8 +10,9 @@
 
 ComputeRenderer::ComputeRenderer(VulkanDevice* device, VulkanCommandPool* commandPool)
     : device(device), commandPool(commandPool), computePipeline(nullptr),
-      descriptorSet(VK_NULL_HANDLE), descriptorPool(VK_NULL_HANDLE),
-      cameraPos(0.0f, 0.0f, -3.0f), time(0.0f), viewMatrix(1.0f), aspectRatio(16.0f/9.0f) {
+      descriptorSet(VK_NULL_HANDLE), descriptorPool(VK_NULL_HANDLE), physicsStateBuffer(VK_NULL_HANDLE),
+      cameraPos(0.0f, 0.0f, -3.0f), time(0.0f), viewMatrix(1.0f), aspectRatio(16.0f/9.0f),
+      marblePos(0.0f), marbleRadius(0.3f), bulbAngle(0.0f), bulbPos(0.0f) {
     Logger::info("Creating Compute Renderer");
     
     // Create compute pipeline
@@ -43,18 +44,21 @@ void ComputeRenderer::createCommandBuffers() {
     Logger::info("Created " + std::to_string(commandBuffers.size()) + " command buffers");
 }
 
-void ComputeRenderer::createDescriptorSet() {
+void ComputeRenderer::createDescriptorSet(VkBuffer stateBuffer) {
+    physicsStateBuffer = stateBuffer;
     Logger::info("Creating compute descriptor set");
     
-    // Create descriptor pool
-    VkDescriptorPoolSize poolSize{};
-    poolSize.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    poolSize.descriptorCount = 1;
-    
+    // Create descriptor pool with buffer + image
+    VkDescriptorPoolSize poolSizes[2]{};
+    poolSizes[0].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    poolSizes[0].descriptorCount = 1;
+    poolSizes[1].type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    poolSizes[1].descriptorCount = 1;
+
     VkDescriptorPoolCreateInfo poolInfo{};
     poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.poolSizeCount = 2;
+    poolInfo.pPoolSizes = poolSizes;
     poolInfo.maxSets = 1;
     
     if (vkCreateDescriptorPool(device->getDevice(), &poolInfo, nullptr, &descriptorPool) != VK_SUCCESS) {
@@ -73,22 +77,34 @@ void ComputeRenderer::createDescriptorSet() {
         throw std::runtime_error("Failed to allocate descriptor set!");
     }
     
-    // Update descriptor set
+    // Update descriptor set (buffer + image)
+    VkDescriptorBufferInfo bufInfo{};
+    bufInfo.buffer = physicsStateBuffer;
+    bufInfo.offset = 0;
+    bufInfo.range  = VK_WHOLE_SIZE;
+
     VkDescriptorImageInfo imageInfo{};
     imageInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    imageInfo.imageView = computePipeline->getOutputImageView();
-    imageInfo.sampler = VK_NULL_HANDLE;
-    
-    VkWriteDescriptorSet descriptorWrite{};
-    descriptorWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    descriptorWrite.dstSet = descriptorSet;
-    descriptorWrite.dstBinding = 1;
-    descriptorWrite.dstArrayElement = 0;
-    descriptorWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    descriptorWrite.descriptorCount = 1;
-    descriptorWrite.pImageInfo = &imageInfo;
-    
-    vkUpdateDescriptorSets(device->getDevice(), 1, &descriptorWrite, 0, nullptr);
+    imageInfo.imageView   = computePipeline->getOutputImageView();
+    imageInfo.sampler     = VK_NULL_HANDLE;
+
+    VkWriteDescriptorSet writes[2]{};
+
+    writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = descriptorSet;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[0].pBufferInfo = &bufInfo;
+
+    writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[1].dstSet = descriptorSet;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    writes[1].pImageInfo = &imageInfo;
+
+    vkUpdateDescriptorSets(device->getDevice(), 2, writes, 0, nullptr);
     
     Logger::info("Compute descriptor set created successfully");
 }
@@ -107,6 +123,13 @@ void ComputeRenderer::updateCameraData(const glm::vec3& cameraPos, float time, c
     this->time = time;
     this->viewMatrix = viewMatrix;
     this->aspectRatio = aspectRatio;
+}
+
+void ComputeRenderer::updatePhysicsData(const glm::vec3& marblePos, float marbleRadius, float bulbAngle, const glm::vec3& bulbPos) {
+    this->marblePos = marblePos;
+    this->marbleRadius = marbleRadius;
+    this->bulbAngle = bulbAngle;
+    this->bulbPos = bulbPos;
 }
 
 void ComputeRenderer::recordCommandBuffer(uint32_t imageIndex, size_t currentFrame, VkImage swapChainImage) {
@@ -134,16 +157,14 @@ void ComputeRenderer::recordCommandBuffer(uint32_t imageIndex, size_t currentFra
     
     // Push constants
     struct PushConstants {
-        glm::vec3 cameraPos;
-        float time;
+        glm::vec4 camPos_time;   // xyz camera, w = time
         glm::mat4 viewMatrix;
-        float aspectRatio;
+        glm::vec4 aspect;        // x = aspect ratio
     } pushConstants;
-    
-    pushConstants.cameraPos = cameraPos;
-    pushConstants.time = time;
-    pushConstants.viewMatrix = viewMatrix;
-    pushConstants.aspectRatio = aspectRatio;
+
+    pushConstants.camPos_time = glm::vec4(cameraPos, time);
+    pushConstants.viewMatrix  = viewMatrix;
+    pushConstants.aspect      = glm::vec4(aspectRatio, 0.0f, 0.0f, 0.0f);
     
     vkCmdPushConstants(commandBuffers[currentFrame], computePipeline->getPipelineLayout(), 
                       VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(PushConstants), &pushConstants);

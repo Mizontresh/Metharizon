@@ -17,10 +17,12 @@ public:
     ~ComputeRenderer();
 
     void createCommandBuffers();
-    void createDescriptorSet();
+    void createDescriptorSet(VkBuffer stateBuffer);
     void createOutputImage(VulkanSwapChain* swapChain);
     
     void updateCameraData(const glm::vec3& cameraPos, float time, const glm::mat4& viewMatrix, float aspectRatio);
+    // Provide marble & bulb state every frame
+    void updatePhysicsData(const glm::vec3& marblePos, float marbleRadius, float bulbAngle, const glm::vec3& bulbPos);
     void recordCommandBuffer(uint32_t imageIndex, size_t currentFrame, VkImage swapChainImage);
     
     VkCommandBuffer getCommandBuffer(size_t frameIndex);
@@ -44,7 +46,14 @@ private:
     float time;
     glm::mat4 viewMatrix;
     float aspectRatio;
+
+    // Physics (marble + bulb)
+    glm::vec3 marblePos;
+    float marbleRadius;
+    float bulbAngle;
+    glm::vec3 bulbPos;
     
+    VkBuffer physicsStateBuffer;
     // Extent for output image
     VkExtent2D imageExtent;
     

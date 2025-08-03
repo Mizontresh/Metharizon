@@ -15,6 +15,8 @@ class VulkanCommandPool;
 class VulkanDescriptorPool;
 class RaymarchRenderer;
 class ComputeRenderer;
+class PhysicsComputeRenderer;
+
 
 
 class VulkanApplication {
@@ -37,6 +39,9 @@ public:
     
     // Rendering components
     std::unique_ptr<ComputeRenderer> computeRenderer;
+
+    // GPU Physics
+    std::unique_ptr<PhysicsComputeRenderer> physicsRenderer;
     
 private:
     Window* window;

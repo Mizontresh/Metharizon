@@ -1,0 +1,128 @@
+#version 450
+
+// One invocation per marble. For now we assume exactly *one* marble and
+// therefore dispatch 1×1×1 work-groups.  The code is written so we can
+// scale to many marbles later (index = gl_GlobalInvocationID.x).
+layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
+
+// ---------- Scene-wide constants ------------------------------
+// These are the same physical constants we used on the CPU side.  They
+// could also come from a UBO, but push-constants are simplest.
+layout(push_constant) uniform PC {
+    float dt;            // simulation time step (seconds)
+    float bigG;          // gravitational constant (our tuned value)
+    float restitution;   // bounciness 0 … 1
+} pc;
+
+// ---------- Shared state buffer --------------------------------
+// std430 so vec4 elements are tightly packed (aligned to 16 B).
+//
+// Index 0    – marble
+// Index 1    – mandelbulb (treated as rigid sphere for translation)
+//            – its rotation is handled by the bulbAngle push constant.
+struct Body {
+    vec4 posRad;   // xyz = position, w = radius (marble only, bulb radius unused)
+    vec4 velMas;   // xyz = linear velocity, w = mass
+};
+
+layout(std430, binding = 0) buffer StateBuffer {
+    Body bodies[];
+} state;
+
+#define MARBLE 0
+#define BULB   1
+
+// ---------------------------------------------------------------
+// Mandelbulb SDF – identical to the renderer (except we translate by
+// bulb position first and *then* rotate by bulbAngle).
+float mandelbulbSDF(vec3 p) {
+    // Translate into bulb space
+    p -= state.bodies[BULB].posRad.xyz;
+
+    // Rotate around Y axis
+    float angle = state.bodies[BULB].posRad.w;
+    float c = cos(angle);
+    float s = sin(angle);
+    mat2 rot = mat2(c, -s, s, c);
+    p.xz = rot * p.xz;
+
+    vec3 z = p;
+    float dr = 1.0;
+    float r  = 0.0;
+
+    for (int i = 0; i < 15; ++i) {
+        r = length(z);
+        if (r > 2.0) break;
+        // spherical → polar
+        float theta = acos(z.z / r);
+        float phi   = atan(z.y, z.x);
+        // power 8
+        float zr = pow(r, 8.0);
+        theta *= 8.0; phi *= 8.0;
+        // back to cartesian
+        z = zr * vec3(sin(theta) * cos(phi), sin(theta) * sin(phi), cos(theta));
+        z += p;
+        dr = pow(r, 7.0) * 8.0 * dr + 1.0;
+    }
+    return 0.5 * log(r) * r / dr;
+}
+
+vec3 estimateNormal(vec3 p) {
+    const float eps = 0.001;
+    return normalize(vec3(
+        mandelbulbSDF(vec3(p.x + eps, p.y, p.z)) - mandelbulbSDF(vec3(p.x - eps, p.y, p.z)),
+        mandelbulbSDF(vec3(p.x, p.y + eps, p.z)) - mandelbulbSDF(vec3(p.x, p.y - eps, p.z)),
+        mandelbulbSDF(vec3(p.x, p.y, p.z + eps)) - mandelbulbSDF(vec3(p.x, p.y, p.z - eps))
+    ));
+}
+
+// ---------------------------------------------------------------
+void main() {
+    uint idx = gl_GlobalInvocationID.x;      // marble index
+    if (idx >= 1) return;                    // only one marble for now
+
+    Body marble = state.bodies[MARBLE];
+    Body bulb   = state.bodies[BULB];
+
+    // ---------------- Gravity ----------------------------------
+    vec3 r     = bulb.posRad.xyz - marble.posRad.xyz;
+    float dist = length(r);
+    vec3 dir   = (dist > 0.0) ? r / dist : vec3(0.0);
+
+    float F = pc.bigG * marble.velMas.w * bulb.velMas.w / (dist*dist + 1e-6);
+    vec3 accelMarble =  F / marble.velMas.w * dir;
+    vec3 accelBulb   = -F / bulb.velMas.w   * dir;
+
+    // ---------------- Integrate (semi-implicit Euler) ----------
+    marble.velMas.xyz += accelMarble * pc.dt;
+    bulb.velMas.xyz   += accelBulb   * pc.dt;
+
+    marble.posRad.xyz += marble.velMas.xyz * pc.dt;
+    bulb.posRad.xyz   += bulb.velMas.xyz   * pc.dt;
+
+    // ---------------- Collision against Mandelbulb -------------
+    float d = mandelbulbSDF(marble.posRad.xyz) - marble.posRad.w;
+    if (d < 0.0) {
+        // Penetration → project out & apply impulse
+        vec3 n = estimateNormal(marble.posRad.xyz);
+        marble.posRad.xyz -= n * d;   // push out exactly to the surface
+
+        // relative velocity along normal
+        float relVel = dot(marble.velMas.xyz - bulb.velMas.xyz, n);
+        if (relVel < 0.0) {
+            float m1 = marble.velMas.w;
+            float m2 = bulb.velMas.w;
+            float j  = -(1.0 + pc.restitution) * relVel / (1.0/m1 + 1.0/m2);
+            vec3 impulse = j * n;
+            marble.velMas.xyz +=  impulse / m1;
+            bulb.velMas.xyz   -=  impulse / m2;
+        }
+    }
+
+    // ---------------- Spin the bulb ---------------------------
+    bulb.posRad.w += 0.4 * pc.dt;
+
+    // ---------------- Write back to the SSBO -------------------
+    state.bodies[MARBLE] = marble;
+    state.bodies[BULB]   = bulb;
+}
