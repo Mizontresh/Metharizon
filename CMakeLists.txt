@@ -34,8 +34,6 @@ list(APPEND SOURCES "src/core/Camera.cpp")
 
 # Shader files
 file(GLOB_RECURSE SHADERS 
-    "shaders/*.vert"
-    "shaders/*.frag"
     "shaders/*.comp"
 )
 

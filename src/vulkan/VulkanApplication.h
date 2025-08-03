@@ -14,6 +14,8 @@ class VulkanPipeline;
 class VulkanCommandPool;
 class VulkanDescriptorPool;
 class RaymarchRenderer;
+class ComputeRenderer;
+
 
 class VulkanApplication {
 public:
@@ -34,7 +36,7 @@ public:
     std::unique_ptr<Camera> camera;
     
     // Rendering components
-    std::unique_ptr<RaymarchRenderer> raymarchRenderer;
+    std::unique_ptr<ComputeRenderer> computeRenderer;
     
 private:
     Window* window;
@@ -43,8 +45,6 @@ private:
     std::unique_ptr<VulkanInstance> instance;
     std::unique_ptr<VulkanDevice> device;
     std::unique_ptr<VulkanSwapChain> swapChain;
-    std::unique_ptr<VulkanRenderPass> renderPass;
-    std::unique_ptr<VulkanPipeline> pipeline;
     std::unique_ptr<VulkanCommandPool> commandPool;
     std::unique_ptr<VulkanDescriptorPool> descriptorPool;
     

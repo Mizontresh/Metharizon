@@ -19,6 +19,7 @@ public:
     VkFormat getSwapChainImageFormat() const { return swapChainImageFormat; }
     VkExtent2D getSwapChainExtent() const { return swapChainExtent; }
     const std::vector<VkImageView>& getSwapChainImageViews() const { return swapChainImageViews; }
+    const std::vector<VkImage>& getSwapChainImages() const { return swapChainImages; }
     size_t getImageCount() const { return swapChainImages.size(); }
     
     // Recreation

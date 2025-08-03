@@ -4,11 +4,12 @@
 #include "vulkan/VulkanInstance.h"
 #include "vulkan/VulkanDevice.h"
 #include "vulkan/VulkanSwapChain.h"
-#include "vulkan/VulkanRenderPass.h"
-#include "vulkan/VulkanPipeline.h"
+
 #include "vulkan/VulkanCommandPool.h"
 #include "vulkan/VulkanDescriptorPool.h"
-#include "rendering/RaymarchRenderer.h"
+
+#include "rendering/ComputeRenderer.h"
+
 #include <stdexcept>
 #include <GLFW/glfw3.h>
 #define GLM_ENABLE_EXPERIMENTAL
@@ -28,19 +29,15 @@ VulkanApplication::VulkanApplication(Window* window) : window(window) {
     instance = std::make_unique<VulkanInstance>();
     device = std::make_unique<VulkanDevice>(instance.get(), window);
     swapChain = std::make_unique<VulkanSwapChain>(device.get(), window);
-    renderPass = std::make_unique<VulkanRenderPass>(device.get(), swapChain.get());
-    pipeline = std::make_unique<VulkanPipeline>(device.get(), renderPass.get());
     commandPool = std::make_unique<VulkanCommandPool>(device.get());
     descriptorPool = std::make_unique<VulkanDescriptorPool>(device.get());
     
-    // Initialize rendering components
-    raymarchRenderer = std::make_unique<RaymarchRenderer>(device.get(), pipeline.get(), commandPool.get());
+    // Initialize compute renderer
+    computeRenderer = std::make_unique<ComputeRenderer>(device.get(), commandPool.get());
+    computeRenderer->createOutputImage(swapChain.get());
+    computeRenderer->createDescriptorSet();
     
-    // Setup the renderer with swap chain and render pass
-    raymarchRenderer->createFramebuffers(swapChain.get(), renderPass.get());
-    raymarchRenderer->createCommandBuffers();
-    raymarchRenderer->createUniformBuffer();
-    raymarchRenderer->createDescriptorSet();
+
     
     // Create synchronization objects
     createSyncObjects();
@@ -117,6 +114,9 @@ void VulkanApplication::render() {
         lastHeight = height;
     }
     
+    // Handle input and update camera
+    handleInput();
+    
     // Update camera data for shader
     glm::mat4 view = camera->getViewMatrix();
     glm::mat4 proj = glm::perspective(glm::radians(45.0f), aspectRatio, 0.1f, 100.0f);
@@ -126,12 +126,12 @@ void VulkanApplication::render() {
     time += 0.016f; // Approximate 60 FPS
     
     // Safety check: ensure renderer is valid before using it
-    if (!raymarchRenderer) {
-        Logger::error("Renderer is null, skipping frame");
+    if (!computeRenderer) {
+        Logger::error("Compute renderer is null, skipping frame");
         return;
     }
     
-    raymarchRenderer->updateCameraData(camera->getPosition(), time, view, aspectRatio);
+    computeRenderer->updateCameraData(camera->getPosition(), time, view, aspectRatio);
     
     // Debug: Log camera data being sent to shader
     static int debugFrame = 0;
@@ -142,19 +142,20 @@ void VulkanApplication::render() {
     }
     
     // Record command buffer
-    raymarchRenderer->recordCommandBuffer(imageIndex, currentFrame);
+    VkImage swapChainImage = swapChain->getSwapChainImages()[imageIndex];
+    computeRenderer->recordCommandBuffer(imageIndex, currentFrame, swapChainImage);
     
     // Submit command buffer
     VkSubmitInfo submitInfo{};
     submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     
     VkSemaphore waitSemaphores[] = {imageAvailableSemaphores[currentFrame]};
-    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+    VkPipelineStageFlags waitStages[] = {VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT};
     submitInfo.waitSemaphoreCount = 1;
     submitInfo.pWaitSemaphores = waitSemaphores;
     submitInfo.pWaitDstStageMask = waitStages;
     
-    VkCommandBuffer commandBuffer = raymarchRenderer->getCommandBuffer(currentFrame);
+    VkCommandBuffer commandBuffer = computeRenderer->getCommandBuffer(currentFrame);
     submitInfo.commandBufferCount = 1;
     submitInfo.pCommandBuffers = &commandBuffer;
     
@@ -220,20 +221,10 @@ void VulkanApplication::createSyncObjects() {
 void VulkanApplication::cleanupSwapChain() {
     Logger::info("Cleaning up swap chain resources...");
     
-    // Clean up the renderer first (it depends on swap chain resources)
-    if (raymarchRenderer) {
-        raymarchRenderer->cleanup();
-        raymarchRenderer.reset();
-    }
-    
-    // Clean up pipeline (depends on render pass)
-    if (pipeline) {
-        pipeline.reset();
-    }
-    
-    // Clean up render pass (depends on swap chain)
-    if (renderPass) {
-        renderPass.reset();
+    // Clean up the renderers first (they depend on swap chain resources)
+    if (computeRenderer) {
+        computeRenderer->cleanup();
+        computeRenderer.reset();
     }
     
     // Clean up swap chain last
@@ -264,18 +255,14 @@ void VulkanApplication::recreateSwapChain() {
     Logger::info("Creating new swap chain...");
     // Recreate swap chain and related objects
     swapChain = std::make_unique<VulkanSwapChain>(device.get(), window);
-    renderPass = std::make_unique<VulkanRenderPass>(device.get(), swapChain.get());
-    pipeline = std::make_unique<VulkanPipeline>(device.get(), renderPass.get());
     
-    Logger::info("Creating new renderer...");
-    // Create a completely new renderer instance
+    Logger::info("Creating new renderers...");
+    // Create a completely new renderer instances
     try {
-        raymarchRenderer = std::make_unique<RaymarchRenderer>(device.get(), pipeline.get(), commandPool.get());
-        raymarchRenderer->createFramebuffers(swapChain.get(), renderPass.get());
-        raymarchRenderer->createCommandBuffers();
-        raymarchRenderer->createUniformBuffer();
-        raymarchRenderer->createDescriptorSet();
-        Logger::info("New renderer created successfully");
+        computeRenderer = std::make_unique<ComputeRenderer>(device.get(), commandPool.get());
+        computeRenderer->createOutputImage(swapChain.get());
+        computeRenderer->createDescriptorSet();
+        Logger::info("New compute renderer created successfully");
     } catch (const std::exception& e) {
         Logger::error("Failed to create new renderer: " + std::string(e.what()));
         throw;
@@ -290,8 +277,8 @@ void VulkanApplication::handleInput() {
     camera->moveBackwardPressed = window->isKeyPressed(GLFW_KEY_S);
     camera->moveLeftPressed = window->isKeyPressed(GLFW_KEY_A);
     camera->moveRightPressed = window->isKeyPressed(GLFW_KEY_D);
-    camera->moveUpPressed = window->isKeyPressed(GLFW_KEY_SPACE);
-    camera->moveDownPressed = window->isKeyPressed(GLFW_KEY_LEFT_SHIFT);
+    camera->moveUpPressed = window->isKeyPressed(GLFW_KEY_LEFT_SHIFT);
+    camera->moveDownPressed = window->isKeyPressed(GLFW_KEY_SPACE);
     
     // Update camera
     static float lastTime = 0.0f;
@@ -365,7 +352,7 @@ void VulkanApplication::onMouseMove(double xpos, double ypos) {
     
     // Rotate camera based on mouse movement (fixed Y-axis)
     camera->rotateYaw(static_cast<float>(deltaX * camera->mouseSensitivity));
-    camera->rotatePitch(static_cast<float>(deltaY * camera->mouseSensitivity)); // Removed negative sign
+    camera->rotatePitch(static_cast<float>(-deltaY * camera->mouseSensitivity)); // Inverted Y-axis for inverted mouse
     
     // Update last position
     lastX = xpos;
